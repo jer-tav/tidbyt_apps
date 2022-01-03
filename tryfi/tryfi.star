@@ -2,9 +2,9 @@
 load("render.star", "render")
 load("http.star", "http")
 
-VAR_USERNAME = "***REMOVED***"
-VAR_PASSWORD = "***REMOVED***"
-VAR_PET_ID = "***REMOVED***"
+VAR_USERNAME = "USERNAME"
+VAR_PASSWORD = "PASSWORD"
+VAR_PET_ID = "PET_ID"
 
 API_BASE_URL = "https://api.tryfi.com"
 API_LOGIN_URL = API_BASE_URL + "/auth/login"
