@@ -1,32 +1,53 @@
-# Attempt to connect to the Fi API and display a pet's step count.
+# TryFi Tidbyt Application
+# Jeremy Tavener
+# MIT License
 load("render.star", "render")
 load("http.star", "http")
-
-VAR_USERNAME = "USERNAME"
-VAR_PASSWORD = "PASSWORD"
-VAR_PET_ID = "PET_ID"
 
 API_BASE_URL = "https://api.tryfi.com"
 API_LOGIN_URL = API_BASE_URL + "/auth/login"
 API_GRAPHQL = API_BASE_URL + "/graphql"
 
-QUERY_PET_DEVICE_DETAILS = "{pet (id: \"" + VAR_PET_ID + "\") { name dailyStat: currentActivitySummary (period: DAILY) { totalSteps stepGoal } } }"
+def main(config):
+    username = config.get("username")
+    password = config.get("password")
+    pet_name = config.get("pet_name")
 
-def main():
-    resp = http.post(API_LOGIN_URL, json_body={"email":VAR_USERNAME, "password":VAR_PASSWORD})
+    if username == None or password == None or pet_name == None:
+        fail("Required arguments were not provided.")
+    
+    resp = http.post(API_LOGIN_URL, json_body={"email":username, "password":password})
 
     if resp.status_code != 200:
-        fail("Failed to auth with the TryFi API with status %d", resp.status_code)
+        fail("Failed to auth with the TryFi API with status {}".format(resp.status_code))
 
     session_id = resp.json()["sessionId"]
     cookie = resp.headers["Set-Cookie"]
 
-    resp = http.post(API_GRAPHQL,headers={"sessionId":session_id, "Cookie":cookie}, json_body={"query":QUERY_PET_DEVICE_DETAILS})
+    # Get a list of all the pets for the current user and find the one that matches the name from the config
+    pets_query_url = "{ currentUser { pets { name id } } }"
 
+    resp = http.post(API_GRAPHQL,headers={"sessionId":session_id, "Cookie":cookie}, json_body={"query":pets_query_url})
     if resp.status_code != 200:
-        fail("Failed to query the TryFi API with status %d", resp.status_code)
+        fail("Failed to query the TryFi API for the pet list with status {}".format(resp.status_code))
 
-    pet_name = resp.json()["data"]["pet"]["name"]
+    pets = resp.json()["data"]["currentUser"]["pets"]
+    pet_id = None
+
+    for pet in pets:
+        if pet["name"] == pet_name:
+            pet_id = pet["id"]
+            break
+
+    if pet_id == None:
+        fail("Couldn't find pet with name {}".format(pet_name))
+
+    pet_query_url = "{pet (id: \"" + pet_id + "\") { name dailyStat: currentActivitySummary (period: DAILY) { totalSteps stepGoal } } }"
+
+    resp = http.post(API_GRAPHQL,headers={"sessionId":session_id, "Cookie":cookie}, json_body={"query":pet_query_url})
+    if resp.status_code != 200:
+        fail("Failed to query the TryFi API with status {}".format(resp.status_code))
+
     daily_steps = resp.json()["data"]["pet"]["dailyStat"]["totalSteps"]
     step_goal = resp.json()["data"]["pet"]["dailyStat"]["stepGoal"]
 

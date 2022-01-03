@@ -1,3 +1,4 @@
 # Ignore compiled web pages
 *.webp  
 *.png
+*.pwds
