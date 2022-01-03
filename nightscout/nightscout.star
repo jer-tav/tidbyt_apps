@@ -3,22 +3,26 @@ load("http.star", "http")
 load("time.star", "time")
 load("encoding/base64.star", "base64")
 
-VAR_NIGHTSCOUT_ID="NIGHTSCOUT_ID"
-VAR_NIGHTSCOUT_URL="https://" + VAR_NIGHTSCOUT_ID + ".herokuapp.com/api/v1/entries.json"
-VAR_NORMAL_RANGE_HIGH=150
-VAR_NORMAL_RANGE_LOW=100
-VAR_URGENT_RANGE_HIGH=200
-VAR_URGENT_RANGE_LOW=70
-
 COLOR_RED = "#f00"
 COLOR_YELLOW = "#ff0"
 COLOR_GREEN = "#0f0"
 COLOR_GREY = "#666"
 COLOR_WHITE = "#fff"
 
-def main():
+def main(config):
+    nightscout_id = config.get("id")
+    normal_high = config.get("normal_high", 150)
+    normal_low = config.get("normal_low", 100)
+    urgent_high = config.get("urgent_high", 200)
+    urgent_low = config.get("urgent_low", 70)
+
+    if nightscout_id == None:
+        fail("No Nightscout ID Provided")
+
+    nightscout_url = "https://" + nightscout_id + ".herokuapp.com/api/v1/entries.json"
+
     # Request latest entries from the Nightscout URL
-    resp = http.get(VAR_NIGHTSCOUT_URL)
+    resp = http.get(nightscout_url)
 
     if resp.status_code != 200:
         fail("Failed to retieve the Nightscout details with status %d", resp.status_code)
@@ -43,11 +47,11 @@ def main():
         # The information is stale (i.e. over 5 minutes old) - overrides everything.
         color_str = "Grey"
         font_color = COLOR_GREY
-    elif (sgv_current <= VAR_NORMAL_RANGE_HIGH and sgv_current >= VAR_NORMAL_RANGE_LOW):
+    elif (sgv_current <= normal_high and sgv_current >= normal_low):
         # We're in the normal range, so use green.
         font_color = COLOR_GREEN
         color_str = "Green"
-    elif (sgv_current >= VAR_URGENT_RANGE_HIGH and sgv_current <= VAR_URGENT_RANGE_LOW):
+    elif (sgv_current >= urgent_high or sgv_current <= urgent_low):
         # We're in the urgent range, so use red.
         font_color = COLOR_RED
         color_str = "Red"
