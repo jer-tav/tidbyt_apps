@@ -3,7 +3,7 @@ load("http.star", "http")
 load("time.star", "time")
 load("encoding/base64.star", "base64")
 
-VAR_NIGHTSCOUT_ID="***REMOVED***"
+VAR_NIGHTSCOUT_ID="NIGHTSCOUT_ID"
 VAR_NIGHTSCOUT_URL="https://" + VAR_NIGHTSCOUT_ID + ".herokuapp.com/api/v1/entries.json"
 VAR_NORMAL_RANGE_HIGH=150
 VAR_NORMAL_RANGE_LOW=100
