@@ -35,5 +35,19 @@ If the current data is more than 15 minutes out of date, the arrow and current B
 | urgent_high | The urgent high value - anything above this is considered red | Optional | 200 |
 | urgent_low | The urgent low value - anything below this is considered red | Optional | 70 |
 
-### Example Renders with Pixlet
+### Example Render with Pixlet
 `pixlet render nightscout/nightscout.star id=abc normal_high=170 normal_low=110`
+
+## Steam 
+This displays the game that you're currently playing, with the game icon.  If you're not currently in a game, it will show your previous titles from the last two weeks.
+
+*NOTE* Your Steam privacy settings must have Game Details set to Public for this to work.
+
+### Arguments
+| Argument Name | Description | Required / Optional | Default |
+| --- | --- | --- | --- | 
+| steam_id | The Steam ID for the player you wish to display stats for (can be taken from their profile URL) | Required | None
+| api_key | An [API key for Steam](https://steamcommunity.com/dev/apikey) | Required | None |
+
+### Example Render with Pixlet
+`pixlet render steam/steam.star steam_id=1234567890 api_key=ABCDEF1234567890`
