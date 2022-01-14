@@ -2,6 +2,7 @@ load("render.star", "render")
 load("http.star", "http")
 load("time.star", "time")
 load("encoding/base64.star", "base64")
+load("cache.star", "cache")
 
 COLOR_RED = "#f00"
 COLOR_YELLOW = "#ff0"
@@ -10,40 +11,70 @@ COLOR_GREY = "#666"
 COLOR_WHITE = "#fff"
 
 def main(config):
-    nightscout_id = config.get("id")
+    nightscout_id = config.get("id", None)
     normal_high = config.get("normal_high", 150)
     normal_low = config.get("normal_low", 100)
     urgent_high = config.get("urgent_high", 200)
     urgent_low = config.get("urgent_low", 70)
 
     if nightscout_id == None:
-        fail("No Nightscout ID Provided")
+        print("No Nightscout ID provided - can't do anything")
+        return render.Root(
+            render.Marquee(
+                width = 64,
+                child = render.Text(
+                    content=str("Please specify your Nightscout ID")
+                )
+            )
+        )
 
-    nightscout_url = "https://" + nightscout_id + ".herokuapp.com/api/v1/entries.json"
+    sgv_current_cache = cache.get(nightscout_id + "_sgv_current")
+    sgv_delta_cache = cache.get(nightscout_id + "_sgv_delta")
+    latest_reading_date_string_cache = cache.get(nightscout_id + "_latest_reading_date_string")
+    trend_cache = cache.get(nightscout_id + "_trend")
+    
+    if sgv_current_cache != None and latest_reading_date_string_cache != None and latest_reading_date_string_cache != None and trend_cache != None:
+        print("Hit - displaying cached data")
+        # Pull the data from the cache
+        sgv_current = int(sgv_current_cache)
+        sgv_delta = int(sgv_delta_cache)
+        latest_reading_dt = time.parse_time(latest_reading_date_string_cache)
+        trend = trend_cache
+    else:
+        print("Miss - calling Nightscout API")
+        nightscout_url = "https://" + nightscout_id + ".herokuapp.com/api/v1/entries.json"
 
-    # Request latest entries from the Nightscout URL
-    resp = http.get(nightscout_url)
+        # Request latest entries from the Nightscout URL
+        resp = http.get(nightscout_url)
 
-    if resp.status_code != 200:
-        fail("Failed to retieve the Nightscout details with status %d", resp.status_code)
+        if resp.status_code != 200:
+            fail("Failed to retieve the Nightscout details with status %d", resp.status_code)
 
-    latest_reading = resp.json()[0]
-    previous_reading = resp.json()[1]
+        latest_reading = resp.json()[0]
+        previous_reading = resp.json()[1]
+        latest_reading_date_string = latest_reading["dateString"]
+        latest_reading_dt = time.parse_time(latest_reading_date_string)
 
-    # Get date / time strings for latest, previous and now.
-    latest_reading_dt = time.parse_time(latest_reading["dateString"])
-    previous_reading_dt = time.parse_time(previous_reading["dateString"])
-    now_dt = time.now().in_location("UTC")
+        # Current sgv value
+        sgv_current = latest_reading["sgv"]
 
-    # Current sgv value
-    sgv_current = latest_reading["sgv"]
+        # Delta between the current and previous
+        sgv_delta = int(sgv_current - previous_reading["sgv"])
+
+        # Get the trend
+        trend = latest_reading["trend"]
+
+        cache.set(nightscout_id + "_sgv_current", str(int(sgv_current)), ttl_seconds=300)
+        cache.set(nightscout_id + "_sgv_delta", str(int(sgv_delta)), ttl_seconds=300)
+        cache.set(nightscout_id + "_latest_reading_date_string", latest_reading_date_string, ttl_seconds=300)
+        cache.set(nightscout_id + "_trend", trend, ttl_seconds=300)
 
     # Used for finding the icon later..
     # Default state is yellow to make the conditions easier
     font_color = COLOR_YELLOW
     color_str = "Yellow"
 
-    if (time.parse_duration("15m") < (now_dt - latest_reading_dt)):
+    if (time.parse_duration("15m") < (time.now().in_location("UTC") - latest_reading_dt)):
         # The information is stale (i.e. over 5 minutes old) - overrides everything.
         color_str = "Grey"
         font_color = COLOR_GREY
@@ -56,10 +87,7 @@ def main(config):
         font_color = COLOR_RED
         color_str = "Red"
 
-    # Calculate the delta and format it
-    sgv_delta = sgv_current - previous_reading["sgv"]
-
-    str_delta = str(int(sgv_delta))
+    str_delta = str(sgv_delta)
     if (sgv_delta < 0):
         str_delta = "-" + str_delta
     else:
@@ -96,8 +124,7 @@ def main(config):
         "SingleUp_Red":base64.decode("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFyGlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNi4wLWMwMDYgNzkuMTY0NzUzLCAyMDIxLzAyLzE1LTExOjUyOjEzICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdEV2dD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlRXZlbnQjIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgMjIuMyAoV2luZG93cykiIHhtcDpDcmVhdGVEYXRlPSIyMDIxLTEyLTIzVDEzOjE3OjA2LTA2OjAwIiB4bXA6TWV0YWRhdGFEYXRlPSIyMDIxLTEyLTIzVDEzOjE3OjA2LTA2OjAwIiB4bXA6TW9kaWZ5RGF0ZT0iMjAyMS0xMi0yM1QxMzoxNzowNi0wNjowMCIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo4NjYwNzg5NC0zZGU3LWU2NDctYjU5OS03Zjc0ZGM1YzU1ZTMiIHhtcE1NOkRvY3VtZW50SUQ9ImFkb2JlOmRvY2lkOnBob3Rvc2hvcDo4M2RiOTYxNy0xNTc3LTBkNDktYjA0OS02NTk1MmExZDA0MTIiIHhtcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD0ieG1wLmRpZDplMDAwMWZhZC05NGFlLTQ1NDctODUyMS1iOTA2MzBkNzA5NzgiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiBwaG90b3Nob3A6Q29sb3JNb2RlPSIzIj4gPHhtcE1NOkhpc3Rvcnk+IDxyZGY6U2VxPiA8cmRmOmxpIHN0RXZ0OmFjdGlvbj0iY3JlYXRlZCIgc3RFdnQ6aW5zdGFuY2VJRD0ieG1wLmlpZDplMDAwMWZhZC05NGFlLTQ1NDctODUyMS1iOTA2MzBkNzA5NzgiIHN0RXZ0OndoZW49IjIwMjEtMTItMjNUMTM6MTc6MDYtMDY6MDAiIHN0RXZ0OnNvZnR3YXJlQWdlbnQ9IkFkb2JlIFBob3Rvc2hvcCAyMi4zIChXaW5kb3dzKSIvPiA8cmRmOmxpIHN0RXZ0OmFjdGlvbj0ic2F2ZWQiIHN0RXZ0Omluc3RhbmNlSUQ9InhtcC5paWQ6ODY2MDc4OTQtM2RlNy1lNjQ3LWI1OTktN2Y3NGRjNWM1NWUzIiBzdEV2dDp3aGVuPSIyMDIxLTEyLTIzVDEzOjE3OjA2LTA2OjAwIiBzdEV2dDpzb2Z0d2FyZUFnZW50PSJBZG9iZSBQaG90b3Nob3AgMjIuMyAoV2luZG93cykiIHN0RXZ0OmNoYW5nZWQ9Ii8iLz4gPC9yZGY6U2VxPiA8L3htcE1NOkhpc3Rvcnk+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+YNpYsgAAAEVJREFUOI1j/P//PwMlgAWrKCMjjAUzHSKAxTImPIb/x8EmygBsGrAags8FRAHsYQDzM3oY0MIFowaMGsDAwMDASGl2BgDtCg4aX3DK7AAAAABJRU5ErkJggg=="),
         "SingleUp_Yellow":base64.decode("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAGvmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNi4wLWMwMDYgNzkuMTY0NzUzLCAyMDIxLzAyLzE1LTExOjUyOjEzICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdEV2dD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlRXZlbnQjIiB4bWxuczpkYz0iaHR0cDovL3B1cmwub3JnL2RjL2VsZW1lbnRzLzEuMS8iIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgMjIuMyAoV2luZG93cykiIHhtcDpDcmVhdGVEYXRlPSIyMDIxLTEyLTIzVDEzOjE3OjA2LTA2OjAwIiB4bXA6TWV0YWRhdGFEYXRlPSIyMDIxLTEyLTIzVDEzOjIzOjI2LTA2OjAwIiB4bXA6TW9kaWZ5RGF0ZT0iMjAyMS0xMi0yM1QxMzoyMzoyNi0wNjowMCIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo5ZDUxNzI0Mi1kYWE1LTY0NDAtYmRiMy02ZDI0Zjg5NjA0NDIiIHhtcE1NOkRvY3VtZW50SUQ9ImFkb2JlOmRvY2lkOnBob3Rvc2hvcDpiODYwNjJmYy1kZjFkLTNhNGUtODNlNC1hMGFhNjE4OWI5NDAiIHhtcE1NOk9yaWdpbmFsRG9jdW1lbnRJRD0ieG1wLmRpZDplMDAwMWZhZC05NGFlLTQ1NDctODUyMS1iOTA2MzBkNzA5NzgiIGRjOmZvcm1hdD0iaW1hZ2UvcG5nIiBwaG90b3Nob3A6Q29sb3JNb2RlPSIzIiBwaG90b3Nob3A6SUNDUHJvZmlsZT0ic1JHQiBJRUM2MTk2Ni0yLjEiPiA8eG1wTU06SGlzdG9yeT4gPHJkZjpTZXE+IDxyZGY6bGkgc3RFdnQ6YWN0aW9uPSJjcmVhdGVkIiBzdEV2dDppbnN0YW5jZUlEPSJ4bXAuaWlkOmUwMDAxZmFkLTk0YWUtNDU0Ny04NTIxLWI5MDYzMGQ3MDk3OCIgc3RFdnQ6d2hlbj0iMjAyMS0xMi0yM1QxMzoxNzowNi0wNjowMCIgc3RFdnQ6c29mdHdhcmVBZ2VudD0iQWRvYmUgUGhvdG9zaG9wIDIyLjMgKFdpbmRvd3MpIi8+IDxyZGY6bGkgc3RFdnQ6YWN0aW9uPSJzYXZlZCIgc3RFdnQ6aW5zdGFuY2VJRD0ieG1wLmlpZDo4NjYwNzg5NC0zZGU3LWU2NDctYjU5OS03Zjc0ZGM1YzU1ZTMiIHN0RXZ0OndoZW49IjIwMjEtMTItMjNUMTM6MTc6MDYtMDY6MDAiIHN0RXZ0OnNvZnR3YXJlQWdlbnQ9IkFkb2JlIFBob3Rvc2hvcCAyMi4zIChXaW5kb3dzKSIgc3RFdnQ6Y2hhbmdlZD0iLyIvPiA8cmRmOmxpIHN0RXZ0OmFjdGlvbj0ic2F2ZWQiIHN0RXZ0Omluc3RhbmNlSUQ9InhtcC5paWQ6OWQ1MTcyNDItZGFhNS02NDQwLWJkYjMtNmQyNGY4OTYwNDQyIiBzdEV2dDp3aGVuPSIyMDIxLTEyLTIzVDEzOjIzOjI2LTA2OjAwIiBzdEV2dDpzb2Z0d2FyZUFnZW50PSJBZG9iZSBQaG90b3Nob3AgMjIuMyAoV2luZG93cykiIHN0RXZ0OmNoYW5nZWQ9Ii8iLz4gPC9yZGY6U2VxPiA8L3htcE1NOkhpc3Rvcnk+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+LbOS+AAAAEZJREFUOI1j/P//PwMlgAW7MCOM8R9VANMyJjyG/8fBJsoAbBqwGoLPBUQBHGEADwS0MKCBC0YNGDWAgQFnSoQne5wpEAYAui0LIEsCwkMAAAAASUVORK5CYII=")
     }
-
-    trend = latest_reading["trend"]
+   
     icon_name = trend + "_" + color_str
 
     return render.Root(
