@@ -2,7 +2,9 @@ load("render.star", "render")
 load("http.star", "http")
 load("time.star", "time")
 load("encoding/base64.star", "base64")
+load("encoding/json.star", "json")
 load("cache.star", "cache")
+load("schema.star", "schema")
 
 COLOR_RED = "#f00"
 COLOR_YELLOW = "#ff0"
@@ -10,12 +12,54 @@ COLOR_GREEN = "#0f0"
 COLOR_GREY = "#666"
 COLOR_WHITE = "#fff"
 
+DEFAULT_NORMAL_HIGH = 150
+DEFAULT_NORMAL_LOW = 100
+DEFAULT_URGENT_HIGH = 200
+DEFAULT_URGENT_LOW = 70
+
+def get_schema():
+    return schema.Schema(
+        version = "1",
+        fields = [
+            schema.Text(
+                id = "nightscout_id",
+                name = "Nightscout ID",
+                desc = "Your Nightscout ID (i.e. XXX in https://XXX.herokuapp.com/api/v1/entries.json)",
+                icon = "user"
+            ),
+            schema.Text(
+                id = "normal_high",
+                name = "Normal High Threshold",
+                desc = "Anything above this is displayed yellow unless it is above the Urgent High Threshold (default " + str(DEFAULT_NORMAL_HIGH) + ")",
+                icon = "inputNumeric"
+            ),
+            schema.Text(
+                id = "normal_low",
+                name = "Normal Low Threshold",
+                desc = "Anything below this is displayed yellow unless it is below the Urgent Low Threshold (default " + str(DEFAULT_NORMAL_LOW) + ")",
+                icon = "inputNumeric"
+            ),
+            schema.Text(
+                id = "urgent_high",
+                name = "Urgent High Threshold",
+                desc = "Anything above this is displayed red (Default " + str(DEFAULT_URGENT_HIGH) + ")",
+                icon = "inputNumeric"
+            ),
+            schema.Text(
+                id = "urgent_low",
+                name = "Urgent Low Threshold",
+                desc = "Anything below this is displayed red (Default " + str(DEFAULT_URGENT_LOW) + ")",
+                icon = "inputNumeric"
+            )   
+        ]
+    )
+
 def main(config):
-    nightscout_id = config.get("id", None)
-    normal_high = config.get("normal_high", 150)
-    normal_low = config.get("normal_low", 100)
-    urgent_high = config.get("urgent_high", 200)
-    urgent_low = config.get("urgent_low", 70)
+    nightscout_id = config.get("nightscout_id", None)
+    normal_high = int(config.get("normal_high", DEFAULT_NORMAL_HIGH))
+    normal_low = int(config.get("normal_low", DEFAULT_NORMAL_LOW))
+    urgent_high = int(config.get("urgent_high", DEFAULT_URGENT_HIGH))
+    urgent_low = int(config.get("urgent_low", DEFAULT_URGENT_LOW))
 
     if nightscout_id == None:
         print("No Nightscout ID provided - can't do anything")
@@ -28,18 +72,17 @@ def main(config):
             )
         )
 
-    sgv_current_cache = cache.get(nightscout_id + "_sgv_current")
-    sgv_delta_cache = cache.get(nightscout_id + "_sgv_delta")
-    latest_reading_date_string_cache = cache.get(nightscout_id + "_latest_reading_date_string")
-    trend_cache = cache.get(nightscout_id + "_trend")
-    
-    if sgv_current_cache != None and latest_reading_date_string_cache != None and latest_reading_date_string_cache != None and trend_cache != None:
+    # Get the JSON object from the cache
+    nightscout_data_cached = cache.get(nightscout_id + "_nightscout_data")
+    if nightscout_data_cached != None:
+        nightscout_data_json = json.decode(nightscout_data_cached)
         print("Hit - displaying cached data")
+
         # Pull the data from the cache
-        sgv_current = int(sgv_current_cache)
-        sgv_delta = int(sgv_delta_cache)
-        latest_reading_dt = time.parse_time(latest_reading_date_string_cache)
-        trend = trend_cache
+        sgv_current = int(nightscout_data_json["sgv_current"])
+        sgv_delta = int(nightscout_data_json["sgv_delta"])
+        latest_reading_dt = time.parse_time(nightscout_data_json["latest_reading_date_string"])
+        trend = nightscout_data_json["trend"]
     else:
         print("Miss - calling Nightscout API")
         nightscout_url = "https://" + nightscout_id + ".herokuapp.com/api/v1/entries.json"
@@ -64,13 +107,16 @@ def main(config):
         # Get the trend
         trend = latest_reading["trend"]
 
-        cache.set(nightscout_id + "_sgv_current", str(int(sgv_current)), ttl_seconds=300)
-        cache.set(nightscout_id + "_sgv_delta", str(int(sgv_delta)), ttl_seconds=300)
-        cache.set(nightscout_id + "_latest_reading_date_string", latest_reading_date_string, ttl_seconds=300)
-        cache.set(nightscout_id + "_trend", trend, ttl_seconds=300)
+        nightscout_data = {
+            "sgv_current": str(int(sgv_current)),
+            "sgv_delta": str(int(sgv_delta)),
+            "latest_reading_date_string": latest_reading_date_string,
+            "trend": trend
+        }
 
-    # Used for finding the icon later..
-    # Default state is yellow to make the conditions easier
+        cache.set(nightscout_id + "_nightscout_data", json.encode(nightscout_data), ttl_seconds=300)
+
+    # Used for finding the icon later. Default state is yellow to make the logic easier
     font_color = COLOR_YELLOW
     color_str = "Yellow"
 

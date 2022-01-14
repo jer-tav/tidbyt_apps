@@ -29,7 +29,7 @@ If the current data is more than 15 minutes out of date, the arrow and current B
 ### Arguments
 | Argument Name | Description | Required / Optional | Default |
 | --- | --- | --- | --- | 
-| id | The Nightscout ID for the user | Required | None
+| nightscout_id | The Nightscout ID for the user | Required | None
 | normal_high | The normal high value - anything above this is considered yellow unless it is above the urgent_high | Optional | 150 |
 | normal_low | The normal low value - anything below this is considered yellow unless it is below the urgent_low | Optional | 100 |
 | urgent_high | The urgent high value - anything above this is considered red | Optional | 200 |
